@@ -1,4 +1,5 @@
 
+import os
 import pygame
 from .player import Player
 from .obstacle import Obstacle
@@ -19,9 +20,39 @@ class GameEngine:
         self.height = height
         self.ground_y = height - 40
 
-        self.title_font = pygame.font.SysFont("Arial", 48, bold=True)
+        self.title_font = pygame.font.SysFont(
+            "Arial", 48, bold=True
+        )
         self.font = pygame.font.SysFont("Arial", 30)
         self.menu_font = pygame.font.SysFont("Arial", 25)
+
+        # Load sound effects.
+        self.sounds = {}
+        self.sound_enabled = False
+
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+
+            assets_dir = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "assets",
+            )
+
+            self.sounds["jump"] = pygame.mixer.Sound(
+                os.path.join(assets_dir, "jump.wav")
+            )
+            self.sounds["score"] = pygame.mixer.Sound(
+                os.path.join(assets_dir, "score.wav")
+            )
+            self.sounds["game_over"] = pygame.mixer.Sound(
+                os.path.join(assets_dir, "game_over.wav")
+            )
+
+            self.sound_enabled = True
+
+        except (pygame.error, OSError) as error:
+            print("Sound effects unavailable:", error)
 
         self.difficulties = {
             "Easy": {
@@ -44,6 +75,10 @@ class GameEngine:
         self.difficulty = "Medium"
         self.reset_game()
 
+    def play_sound(self, name):
+        if self.sound_enabled and name in self.sounds:
+            self.sounds[name].play()
+
     def reset_game(self):
         settings = self.difficulties[self.difficulty]
 
@@ -60,7 +95,6 @@ class GameEngine:
         self.distance = 0
         self.score = 0
         self.game_over = False
-        self._game_over_logged = False
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:
@@ -72,10 +106,12 @@ class GameEngine:
                 pygame.K_UP,
                 pygame.K_w,
             ):
-                self.player.jump()
+                # Play the sound only when a jump actually starts.
+                if self.player.jump():
+                    self.play_sound("jump")
             return
 
-        # Choose a difficulty to restart the game.
+        # Replay with the selected difficulty.
         if event.key == pygame.K_1:
             self.difficulty = "Easy"
             self.reset_game()
@@ -100,7 +136,7 @@ class GameEngine:
         if self.game_over:
             return
 
-        # Increase speed without exceeding the selected limit.
+        # Gradually increase speed up to the selected limit.
         self.speed = min(
             self.speed + self.speed_increase_per_frame,
             self.max_speed,
@@ -127,19 +163,19 @@ class GameEngine:
             obstacle.move()
             obstacle.speed = self.speed
 
-        # Check collisions.
         player_rect = self.player.rect()
 
+        # Check collisions, including the path travelled this frame.
         for obstacle in self.obstacles:
             obstacle_rect = obstacle.rect()
-            previous_x = obstacle.previous_x
 
-            # Normal collision detection.
             if obstacle_rect.colliderect(player_rect):
                 self.game_over = True
+                self.play_sound("game_over")
                 return
 
-            # Check the full horizontal path travelled this frame.
+            previous_x = obstacle.previous_x
+
             if obstacle.x < previous_x:
                 swept_rect = pygame.Rect(
                     obstacle.x,
@@ -150,6 +186,7 @@ class GameEngine:
 
                 if swept_rect.colliderect(player_rect):
                     self.game_over = True
+                    self.play_sound("game_over")
                     return
 
         # Award points when obstacles pass the player.
@@ -160,8 +197,9 @@ class GameEngine:
             ):
                 obstacle.scored = True
                 self.score += 1
+                self.play_sound("score")
 
-        # Remove obstacles that leave the screen.
+        # Remove obstacles that have left the screen.
         self.obstacles = [
             obstacle
             for obstacle in self.obstacles
@@ -171,10 +209,9 @@ class GameEngine:
         self.distance += self.speed
 
     def render(self, screen):
-        # Sky-blue background so the player is visible.
         screen.fill(SKY_BLUE)
 
-        # Draw the ground.
+        # Ground.
         pygame.draw.line(
             screen,
             BROWN,
@@ -183,7 +220,7 @@ class GameEngine:
             4,
         )
 
-        # Draw the blue player and green obstacles.
+        # Player and obstacles.
         pygame.draw.rect(
             screen,
             PLAYER_BLUE,
@@ -197,23 +234,17 @@ class GameEngine:
                 obstacle.rect(),
             )
 
-        # Display score and selected difficulty.
+        # Score and difficulty.
         score_text = self.font.render(
-            f"Score: {self.score}",
-            True,
-            BLACK,
+            f"Score: {self.score}", True, BLACK
         )
-
         difficulty_text = self.menu_font.render(
-            f"Difficulty: {self.difficulty}",
-            True,
-            BLACK,
+            f"Difficulty: {self.difficulty}", True, BLACK
         )
 
         screen.blit(score_text, (10, 10))
         screen.blit(difficulty_text, (10, 45))
 
-        # Display Game Over screen and replay options.
         if self.game_over:
             overlay = pygame.Surface(
                 (self.width, self.height),
@@ -222,56 +253,53 @@ class GameEngine:
             overlay.fill((0, 0, 0, 190))
             screen.blit(overlay, (0, 0))
 
-            title = self.title_font.render(
-                "GAME OVER",
-                True,
-                RED,
-            )
-
-            final_score = self.font.render(
-                f"Final Score: {self.score}",
-                True,
-                WHITE,
-            )
-
-            prompt = self.menu_font.render(
-                "Choose a difficulty to play again",
-                True,
-                WHITE,
-            )
-
-            easy = self.menu_font.render(
-                "1 - Easy",
-                True,
-                WHITE,
-            )
-
-            medium = self.menu_font.render(
-                "2 - Medium",
-                True,
-                WHITE,
-            )
-
-            hard = self.menu_font.render(
-                "3 - Hard",
-                True,
-                WHITE,
-            )
-
-            exit_text = self.menu_font.render(
-                "ESC / Q - Exit",
-                True,
-                WHITE,
-            )
-
             messages = [
-                (title, self.height // 2 - 125),
-                (final_score, self.height // 2 - 70),
-                (prompt, self.height // 2 - 20),
-                (easy, self.height // 2 + 25),
-                (medium, self.height // 2 + 60),
-                (hard, self.height // 2 + 95),
-                (exit_text, self.height // 2 + 140),
+                (
+                    self.title_font.render(
+                        "GAME OVER", True, RED
+                    ),
+                    self.height // 2 - 125,
+                ),
+                (
+                    self.font.render(
+                        f"Final Score: {self.score}",
+                        True,
+                        WHITE,
+                    ),
+                    self.height // 2 - 70,
+                ),
+                (
+                    self.menu_font.render(
+                        "Choose a difficulty to play again",
+                        True,
+                        WHITE,
+                    ),
+                    self.height // 2 - 20,
+                ),
+                (
+                    self.menu_font.render(
+                        "1 - Easy", True, WHITE
+                    ),
+                    self.height // 2 + 25,
+                ),
+                (
+                    self.menu_font.render(
+                        "2 - Medium", True, WHITE
+                    ),
+                    self.height // 2 + 60,
+                ),
+                (
+                    self.menu_font.render(
+                        "3 - Hard", True, WHITE
+                    ),
+                    self.height // 2 + 95,
+                ),
+                (
+                    self.menu_font.render(
+                        "ESC / Q - Exit", True, WHITE
+                    ),
+                    self.height // 2 + 140,
+                ),
             ]
 
             for text_surface, y in messages:
