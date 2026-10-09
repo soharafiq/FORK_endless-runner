@@ -36,7 +36,8 @@ class GameEngine:
             event.type == pygame.KEYDOWN
             and event.key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w)
         ):
-            self.player.jump()
+            if not self.game_over:
+                self.player.jump()
 
     def handle_input(self):
         # Reserved for continuously-held-key input.
@@ -46,7 +47,7 @@ class GameEngine:
         if self.game_over:
             return
 
-        # Increase speed gradually, with a maximum limit.
+        # Increase speed gradually, up to the maximum.
         self.speed = min(
             self.speed + self.speed_increase_per_frame,
             self.max_speed
@@ -68,7 +69,7 @@ class GameEngine:
             obstacle.move()
             obstacle.speed = self.speed
 
-        # Detect collisions with the player.
+        # Detect collisions.
         player_rect = self.player.rect()
 
         for obstacle in self.obstacles:
@@ -92,12 +93,11 @@ class GameEngine:
                     obstacle.height
                 )
 
-                # Require both horizontal and vertical overlap.
                 if swept_rect.colliderect(player_rect):
                     self.game_over = True
                     return
 
-        # Increase score when obstacles pass the player.
+        # Update score when obstacles pass the player.
         for obstacle in self.obstacles:
             if (
                 not obstacle.scored
@@ -115,6 +115,7 @@ class GameEngine:
         self.distance += self.speed
 
     def render(self, screen):
+        # Draw the ground.
         pygame.draw.line(
             screen,
             BROWN,
@@ -123,18 +124,50 @@ class GameEngine:
             4
         )
 
+        # Draw the player and obstacles.
         pygame.draw.rect(screen, WHITE, self.player.rect())
 
         for obstacle in self.obstacles:
             pygame.draw.rect(screen, DARK_GREEN, obstacle.rect())
 
+        # Display the current score.
         score_text = self.font.render(
             f"Score: {self.score}", True, (0, 0, 0)
         )
         screen.blit(score_text, (10, 10))
 
-        if self.game_over and not getattr(
-            self, "_game_over_logged", False
-        ):
-            print("Game over! Final score:", self.score)
-            self._game_over_logged = True
+        # Display the Game Over screen.
+        if self.game_over:
+            overlay = pygame.Surface(
+                (self.width, self.height), pygame.SRCALPHA
+            )
+            overlay.fill((0, 0, 0, 170))
+            screen.blit(overlay, (0, 0))
+
+            title_font = pygame.font.SysFont(
+                "Arial", 52, bold=True
+            )
+            message_font = pygame.font.SysFont("Arial", 30)
+
+            title = title_font.render(
+                "GAME OVER", True, (255, 80, 80)
+            )
+            final_score = message_font.render(
+                f"Final Score: {self.score}", True, WHITE
+            )
+
+            title_rect = title.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 - 35
+                )
+            )
+            score_rect = final_score.get_rect(
+                center=(
+                    self.width // 2,
+                    self.height // 2 + 25
+                )
+            )
+
+            screen.blit(title, title_rect)
+            screen.blit(final_score, score_rect)
